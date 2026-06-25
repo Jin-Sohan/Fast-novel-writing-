@@ -1,10 +1,14 @@
-
-    <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Veil — A Writing Room</title>
+<meta name="theme-color" content="#17171a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" id="manifestLink">
+<link rel="apple-touch-icon" id="appleIcon">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Noto+Serif+Bengali:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -19,6 +23,7 @@
     --accent-dim:#3a4a8a;
     --seal:#e0a23d;
     --danger:#c96b5a;
+    --editor-font:1.28rem;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;}
@@ -66,8 +71,9 @@
   .editor-wrap{position:relative;width:min(720px,92%);margin:0 auto;height:100%;padding:38px 0 30px;}
   .layer-base{
     position:absolute;inset:38px 0 30px 0;margin:0;
-    font-family:'Lora','Noto Serif Bengali',serif;font-size:1.28rem;line-height:1.85;
+    font-family:'Lora','Noto Serif Bengali',serif;font-size:var(--editor-font, 1.28rem);line-height:1.85;
     white-space:pre-wrap;word-wrap:break-word;overflow-y:auto;padding:0 4px;
+    padding-bottom:5.6em;
     direction:ltr;unicode-bidi:plaintext;text-align:left;
   }
   #highlight{pointer-events:none;}
@@ -158,11 +164,21 @@
     <input type="number" id="goalInput" min="0" step="50" value="1000">
   </div>
 
+  <div class="group">
+    <span class="label">Font</span>
+    <button class="btn" id="fontMinusBtn">A-</button>
+    <button class="btn" id="fontPlusBtn">A+</button>
+  </div>
+
   <button class="btn" id="copyBtn">Copy text</button>
   <button class="btn" id="lockBtn" title="Lock editing before the visible window">🔒 Lock</button>
   <button class="btn" id="readBtn">Reading mode</button>
   <button class="btn" id="viewBtn">View full text</button>
+  <button class="btn" id="undoBtn" title="Revert to last checkpoint">Undo</button>
+  <button class="btn" id="redoBtn" title="Restore what you undid">Redo</button>
   <button class="btn" id="exportBtn">Export .txt</button>
+  <button class="btn" id="exportAllBtn">Export all chapters</button>
+  <span class="label" id="streakText" style="margin-left:4px;">🔥 0 day streak</span>
 
   <div class="counts-row">
     <span><b id="wordCount">0</b> words</span>
@@ -252,6 +268,12 @@ const chapterSelect = document.getElementById('chapterSelect');
 const newChapterBtn = document.getElementById('newChapterBtn');
 const renameChapterBtn = document.getElementById('renameChapterBtn');
 const deleteChapterBtn = document.getElementById('deleteChapterBtn');
+const fontMinusBtn = document.getElementById('fontMinusBtn');
+const fontPlusBtn = document.getElementById('fontPlusBtn');
+const undoBtn = document.getElementById('undoBtn');
+const redoBtn = document.getElementById('redoBtn');
+const exportAllBtn = document.getElementById('exportAllBtn');
+const streakEl = document.getElementById('streakText');
 
 const STORAGE_KEY = 'veil-data';
 let data = { chapters: [], activeId: null };
@@ -260,6 +282,12 @@ let sessionStartWords = 0;
 let sessionStartTime = Date.now();
 let saveTimer = null;
 let locked = false;
+let fontSize = 1.28; // rem
+let undoSnapshots = [];
+let redoSnapshots = [];
+let lastSnapshotWords = 0;
+const FONT_KEY = 'veil-font-size';
+const STREAK_KEY = 'veil-streak';
 
 function uid(){ return 'c' + Date.now() + Math.random().toString(36).slice(2,7); }
 
@@ -339,6 +367,7 @@ function loadActiveIntoEditor(){
   sessionStartTime = Date.now();
   lastSafeValue = editor.value;
   render();
+  snapToCaret();
 }
 
 function wordCount(text){
@@ -499,10 +528,19 @@ function syncScroll(){
   highlight.scrollLeft = editor.scrollLeft;
 }
 
+function snapToCaret(){
+  // padding-bottom on the layers now does this job naturally —
+  // just keep the highlight layer mirroring the textarea's own scroll.
+  syncScroll();
+}
+
 editor.addEventListener('input', ()=>{
   enforceLock();
   lastSafeValue = editor.value;
+  maybeSnapshot(editor.value);
   render(); syncScroll(); scheduleSave();
+  snapToCaret();
+  bumpStreak();
 });
 editor.addEventListener('scroll', syncScroll);
 modeSelect.addEventListener('change', ()=>{ render(); scheduleSave(); });
@@ -616,10 +654,132 @@ exportBtn.addEventListener('click', ()=>{
   URL.revokeObjectURL(url);
 });
 
+// ---------- Font size ----------
+function applyFontSize(){
+  document.documentElement.style.setProperty('--editor-font', fontSize + 'rem');
+}
+async function loadFontSize(){
+  try{
+    const local = localStorage.getItem(FONT_KEY);
+    if(local) fontSize = parseFloat(local);
+  }catch(e){}
+  applyFontSize();
+}
+fontPlusBtn.addEventListener('click', ()=>{
+  fontSize = Math.min(2.2, +(fontSize + 0.08).toFixed(2));
+  applyFontSize();
+  try{ localStorage.setItem(FONT_KEY, fontSize); }catch(e){}
+});
+fontMinusBtn.addEventListener('click', ()=>{
+  fontSize = Math.max(0.85, +(fontSize - 0.08).toFixed(2));
+  applyFontSize();
+  try{ localStorage.setItem(FONT_KEY, fontSize); }catch(e){}
+});
+
+// ---------- Streak tracking ----------
+function todayStr(){
+  return new Date().toISOString().slice(0,10);
+}
+async function bumpStreak(){
+  let s = { lastDate: '', streak: 0 };
+  try{
+    const raw = localStorage.getItem(STREAK_KEY);
+    if(raw) s = JSON.parse(raw);
+  }catch(e){}
+  const today = todayStr();
+  if(s.lastDate === today) { renderStreak(s); return; }
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+  s.streak = (s.lastDate === yesterday) ? (s.streak||0) + 1 : 1;
+  s.lastDate = today;
+  try{ localStorage.setItem(STREAK_KEY, JSON.stringify(s)); }catch(e){}
+  renderStreak(s);
+}
+function renderStreak(s){
+  if(!s){
+    try{ const raw = localStorage.getItem(STREAK_KEY); s = raw ? JSON.parse(raw) : {streak:0}; }catch(e){ s = {streak:0}; }
+  }
+  streakEl.textContent = `🔥 ${s.streak || 0} day streak`;
+}
+
+// ---------- Undo safety net ----------
+function maybeSnapshot(text){
+  const words = wordCount(text);
+  if(Math.abs(words - lastSnapshotWords) >= 30){
+    undoSnapshots.push(text);
+    if(undoSnapshots.length > 25) undoSnapshots.shift();
+    lastSnapshotWords = words;
+    redoSnapshots = []; // new writing invalidates the redo stack
+    undoBtn.disabled = undoSnapshots.length === 0;
+    redoBtn.disabled = true;
+  }
+}
+undoBtn.addEventListener('click', ()=>{
+  if(undoSnapshots.length === 0) return;
+  redoSnapshots.push(editor.value);
+  const prev = undoSnapshots.pop();
+  editor.value = prev;
+  lastSafeValue = prev;
+  render(); syncScroll(); scheduleSave(); snapToCaret();
+  undoBtn.disabled = undoSnapshots.length === 0;
+  redoBtn.disabled = false;
+});
+redoBtn.addEventListener('click', ()=>{
+  if(redoSnapshots.length === 0) return;
+  undoSnapshots.push(editor.value);
+  const next = redoSnapshots.pop();
+  editor.value = next;
+  lastSafeValue = next;
+  render(); syncScroll(); scheduleSave(); snapToCaret();
+  redoBtn.disabled = redoSnapshots.length === 0;
+  undoBtn.disabled = false;
+});
+
+// ---------- Export all chapters ----------
+exportAllBtn.addEventListener('click', async ()=>{
+  await saveAll();
+  const parts = data.chapters.map(c => `${c.title}\n${'─'.repeat(c.title.length)}\n\n${c.text || ''}`);
+  const combined = parts.join('\n\n\n');
+  const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'full-manuscript.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// ---------- Installable app (PWA manifest, generated inline) ----------
+function b64EncodeUnicode(str){
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+    (match, p1) => String.fromCharCode('0x' + p1))
+  );
+}
+(function setupManifest(){
+  const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#17171a"/><text x="50%" y="58%" font-size="320" text-anchor="middle" fill="#5b7fff" font-family="Georgia,serif" font-style="italic">V</text></svg>`;
+  const iconUrl = 'data:image/svg+xml;base64,' + b64EncodeUnicode(iconSvg);
+  const manifest = {
+    name: 'Veil - Writing Room',
+    short_name: 'Veil',
+    start_url: location.href,
+    display: 'standalone',
+    background_color: '#17171a',
+    theme_color: '#17171a',
+    icons: [{ src: iconUrl, sizes: '512x512', type: 'image/svg+xml' }]
+  };
+  const manifestUrl = 'data:application/manifest+json;base64,' + b64EncodeUnicode(JSON.stringify(manifest));
+  document.getElementById('manifestLink').href = manifestUrl;
+  document.getElementById('appleIcon').href = iconUrl;
+})();
+
 // ---------- init ----------
+loadFontSize();
+renderStreak();
+undoBtn.disabled = true;
+redoBtn.disabled = true;
 loadAll();
 window.addEventListener('beforeunload', saveAll);
 </script>
 </body>
 </html>
-
