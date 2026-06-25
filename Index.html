@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veil — A Writing Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Noto+Serif+Bengali:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#17171a;
+    --surface:#202024;
+    --surface-2:#26262b;
+    --line:#34343a;
+    --ink:#ede9e1;
+    --muted:#8b8983;
+    --accent:#5b7fff;
+    --accent-dim:#3a4a8a;
+    --seal:#e0a23d;
+    --danger:#c96b5a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;}
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+  /* top bar */
+  header{
+    display:flex;align-items:center;gap:14px;
+    padding:12px 18px;border-bottom:1px solid var(--line);
+    background:var(--surface);flex-wrap:wrap;
+  }
+  .brand{font-family:'Lora',serif;font-style:italic;font-size:1.15rem;letter-spacing:.02em;color:var(--ink);margin-right:auto;}
+  .brand b{font-style:normal;color:var(--accent);}
+
+  select, .btn, input[type=number]{
+    background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:7px 11px;font-family:'Inter',sans-serif;font-size:.82rem;
+    cursor:pointer;transition:border-color .15s, background .15s;
+  }
+  select:hover,.btn:hover{border-color:var(--accent);}
+  .btn.active{background:var(--accent-dim);border-color:var(--accent);color:#fff;}
+  .btn:disabled{opacity:.35;cursor:not-allowed;}
+  input[type=number]{width:64px;cursor:text;}
+  .mic.on{background:var(--danger);border-color:var(--danger);color:#fff;animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(201,107,90,.5);}50%{box-shadow:0 0 0 6px rgba(201,107,90,0);}}
+
+  .group{display:flex;gap:6px;align-items:center;}
+  .label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+
+  /* progress */
+  .progress-wrap{flex-basis:100%;height:3px;background:var(--line);position:relative;order:5;margin-top:8px;border-radius:2px;overflow:hidden;}
+  .progress-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--seal));transition:width .3s ease;}
+
+  /* editor */
+  main{flex:1;position:relative;overflow:hidden;display:flex;justify-content:center;}
+  .editor-wrap{position:relative;width:min(720px,92%);margin:0 auto;height:100%;padding:38px 0 30px;}
+  .layer-base{
+    position:absolute;inset:38px 0 30px 0;margin:0;
+    font-family:'Lora','Noto Serif Bengali',serif;font-size:1.28rem;line-height:1.85;
+    white-space:pre-wrap;word-wrap:break-word;overflow-y:auto;padding:0 4px;
+  }
+  #highlight{pointer-events:none;}
+  #highlight .dim{color:transparent;}
+  #highlight .lit{color:var(--ink);}
+  textarea#editor{
+    background:transparent;color:transparent;caret-color:var(--accent);
+    border:none;outline:none;resize:none;width:100%;
+  }
+  ::selection{background:var(--accent-dim);}
+
+  .placeholder{
+    position:absolute;top:38px;left:4px;color:var(--muted);font-family:'Lora',serif;font-style:italic;
+    font-size:1.28rem;pointer-events:none;
+  }
+
+  /* status bar */
+  footer{
+    display:flex;justify-content:space-between;align-items:center;gap:14px;
+    padding:10px 18px;border-top:1px solid var(--line);background:var(--surface);
+    font-size:.78rem;color:var(--muted);flex-wrap:wrap;
+  }
+  footer b{color:var(--ink);font-weight:600;}
+  .save-state{display:flex;align-items:center;gap:6px;}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);}
+  .dot.saved{background:#6fbf73;}
+
+  /* full text modal */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(10,10,11,.78);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:50;
+    animation:fadein .25s ease;
+  }
+  .modal-overlay.show{display:flex;}
+  @keyframes fadein{from{opacity:0;}to{opacity:1;}}
+  .modal{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    width:min(720px,90%);max-height:82vh;display:flex;flex-direction:column;
+    box-shadow:0 30px 80px rgba(0,0,0,.5);
+  }
+  .modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line);}
+  .modal-head h2{font-family:'Lora',serif;font-style:italic;font-weight:500;font-size:1.1rem;margin:0;}
+  .modal-body{padding:20px 24px;overflow-y:auto;font-family:'Lora','Noto Serif Bengali',serif;font-size:1.12rem;line-height:1.85;white-space:pre-wrap;}
+  .close-x{background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;line-height:1;}
+  .close-x:hover{color:var(--ink);}
+
+  .goal-toast{
+    position:fixed;top:18px;right:18px;background:var(--surface-2);border:1px solid var(--seal);
+    border-radius:10px;padding:12px 16px;font-size:.85rem;display:none;z-index:60;
+    box-shadow:0 10px 30px rgba(0,0,0,.4);
+  }
+  .goal-toast.show{display:block;animation:fadein .3s ease;}
+  .goal-toast b{color:var(--seal);}
+
+  @media (max-width:640px){
+    header{padding:10px 12px;gap:8px;}
+    .label{display:none;}
+    .layer-base,.placeholder{font-size:1.1rem;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Veil <b>·</b> writing room</div>
+
+  <div class="group">
+    <span class="label">Show</span>
+    <select id="modeSelect">
+      <option value="char">Last character</option>
+      <option value="word">Last word</option>
+      <option value="sentence" selected>Last sentence</option>
+      <option value="paragraph">Last paragraph</option>
+    </select>
+  </div>
+
+  <div class="group">
+    <span class="label">Goal</span>
+    <input type="number" id="goalInput" min="0" step="50" value="1000">
+  </div>
+
+  <button class="btn" id="langBtn" title="Voice typing language">EN</button>
+  <button class="btn mic" id="micBtn" title="Voice type">🎙</button>
+  <button class="btn" id="viewBtn">View full text</button>
+
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+</header>
+
+<main>
+  <div class="editor-wrap">
+    <div class="placeholder" id="placeholder">Start writing. You'll only see what you've chosen to see — the rest stays behind the veil until you ask for it.</div>
+    <div id="highlight" class="layer-base"></div>
+    <textarea id="editor" class="layer-base" spellcheck="false" autofocus></textarea>
+  </div>
+</main>
+
+<footer>
+  <div class="save-state"><span class="dot" id="saveDot"></span><span id="saveText">Loading…</span></div>
+  <div><b id="wordCount">0</b> words &nbsp;·&nbsp; <b id="charCount">0</b> characters &nbsp;·&nbsp; <span id="goalText"></span></div>
+</footer>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Your full manuscript</h2>
+      <button class="close-x" id="closeModal">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="goal-toast" id="goalToast"><b>Goal reached.</b> The veil lifts — here's everything you wrote.</div>
+
+<script>
+const editor = document.getElementById('editor');
+const highlight = document.getElementById('highlight');
+const placeholder = document.getElementById('placeholder');
+const modeSelect = document.getElementById('modeSelect');
+const goalInput = document.getElementById('goalInput');
+const wordCountEl = document.getElementById('wordCount');
+const charCountEl = document.getElementById('charCount');
+const goalTextEl = document.getElementById('goalText');
+const progressBar = document.getElementById('progressBar');
+const viewBtn = document.getElementById('viewBtn');
+const modalOverlay = document.getElementById('modalOverlay');
+const modalBody = document.getElementById('modalBody');
+const closeModal = document.getElementById('closeModal');
+const goalToast = document.getElementById('goalToast');
+const saveDot = document.getElementById('saveDot');
+const saveText = document.getElementById('saveText');
+const micBtn = document.getElementById('micBtn');
+const langBtn = document.getElementById('langBtn');
+
+let goalAlreadyCelebrated = false;
+let saveTimer = null;
+let lang = 'en'; // 'en' or 'bn'
+
+const STORAGE_KEY = 'veil-manuscript';
+
+// ---------- Storage ----------
+async function loadDraft(){
+  try{
+    const res = await window.storage.get(STORAGE_KEY, false);
+    if(res && res.value){
+      const data = JSON.parse(res.value);
+      editor.value = data.text || '';
+      modeSelect.value = data.mode || 'sentence';
+      goalInput.value = data.goal || 1000;
+      lang = data.lang || 'en';
+      goalAlreadyCelebrated = !!data.celebrated;
+      langBtn.textContent = lang === 'en' ? 'EN' : 'বাং';
+      saveText.textContent = 'Draft restored';
+      saveDot.classList.add('saved');
+    } else {
+      saveText.textContent = 'Ready';
+    }
+  }catch(e){
+    saveText.textContent = 'Ready';
+  }
+  render();
+}
+
+function scheduleSave(){
+  saveDot.classList.remove('saved');
+  saveText.textContent = 'Saving…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveDraft, 600);
+}
+
+async function saveDraft(){
+  try{
+    await window.storage.set(STORAGE_KEY, JSON.stringify({
+      text: editor.value,
+      mode: modeSelect.value,
+      goal: goalInput.value,
+      lang: lang,
+      celebrated: goalAlreadyCelebrated
+    }), false);
+    saveDot.classList.add('saved');
+    saveText.textContent = 'Saved';
+  }catch(e){
+    saveText.textContent = 'Could not save — keep this tab open';
+  }
+}
+
+// ---------- Visible-window logic ----------
+function getVisibleSplit(text, mode){
+  if(text.length === 0) return {hidden:'', visible:''};
+  let idx = -1;
+  if(mode === 'char'){
+    idx = text.length - 1;
+  } else if(mode === 'word'){
+    idx = Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t'));
+  } else if(mode === 'sentence'){
+    const enders = ['.','!','?','।','؟'];
+    let last = -1;
+    for(const ch of enders){ const i = text.lastIndexOf(ch); if(i > last) last = i; }
+    idx = last;
+  } else if(mode === 'paragraph'){
+    idx = text.lastIndexOf('\n');
+  }
+  if(idx < 0) return {hidden:'', visible:text};
+  return {hidden: text.slice(0, idx+1), visible: text.slice(idx+1)};
+}
+
+function render(){
+  const text = editor.value;
+  placeholder.style.display = text.length ? 'none' : 'block';
+
+  const {hidden, visible} = getVisibleSplit(text, modeSelect.value);
+  highlight.innerHTML = '';
+  const dimSpan = document.createElement('span');
+  dimSpan.className = 'dim';
+  dimSpan.textContent = hidden;
+  const litSpan = document.createElement('span');
+  litSpan.className = 'lit';
+  litSpan.textContent = visible;
+  highlight.appendChild(dimSpan);
+  highlight.appendChild(litSpan);
+
+  // counts
+  const words = text.trim().length ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+  const chars = text.replace(/\s/g,'').length;
+  wordCountEl.textContent = words;
+  charCountEl.textContent = chars;
+
+  const goal = parseInt(goalInput.value, 10) || 0;
+  if(goal > 0){
+    const pct = Math.min(100, (words/goal)*100);
+    progressBar.style.width = pct + '%';
+    goalTextEl.textContent = `${words}/${goal} words to goal`;
+    if(words >= goal && !goalAlreadyCelebrated){
+      goalAlreadyCelebrated = true;
+      celebrate();
+    }
+    if(words < goal) goalAlreadyCelebrated = false;
+  } else {
+    progressBar.style.width = '0%';
+    goalTextEl.textContent = 'no goal set';
+  }
+}
+
+function syncScroll(){
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+}
+
+editor.addEventListener('input', ()=>{ render(); syncScroll(); scheduleSave(); });
+editor.addEventListener('scroll', syncScroll);
+modeSelect.addEventListener('change', ()=>{ render(); scheduleSave(); });
+goalInput.addEventListener('input', ()=>{ render(); scheduleSave(); });
+
+// ---------- Celebrate / reveal ----------
+function celebrate(){
+  goalToast.classList.add('show');
+  setTimeout(()=> goalToast.classList.remove('show'), 3600);
+  openModal();
+}
+
+function openModal(){
+  modalBody.textContent = editor.value || '(nothing written yet)';
+  modalOverlay.classList.add('show');
+}
+viewBtn.addEventListener('click', openModal);
+closeModal.addEventListener('click', ()=> modalOverlay.classList.remove('show'));
+modalOverlay.addEventListener('click', (e)=>{ if(e.target === modalOverlay) modalOverlay.classList.remove('show'); });
+
+// ---------- Voice typing ----------
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+
+if(SpeechRecognition){
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event)=>{
+    let finalText = '';
+    for(let i = event.resultIndex; i < event.results.length; i++){
+      if(event.results[i].isFinal){
+        finalText += event.results[i][0].transcript;
+      }
+    }
+    if(finalText.trim()){
+      const needsSpace = editor.value.length && !/\s$/.test(editor.value);
+      editor.value += (needsSpace ? ' ' : '') + finalText.trim() + ' ';
+      render(); syncScroll(); scheduleSave();
+      editor.scrollTop = editor.scrollHeight;
+    }
+  };
+  recognition.onend = ()=>{
+    if(listening){ recognition.start(); } // keep listening until user stops it
+  };
+  recognition.onerror = ()=>{
+    listening = false;
+    micBtn.classList.remove('on');
+  };
+} else {
+  micBtn.disabled = true;
+  micBtn.title = 'Voice typing not supported in this browser';
+}
+
+micBtn.addEventListener('click', ()=>{
+  if(!recognition) return;
+  listening = !listening;
+  if(listening){
+    recognition.lang = lang === 'en' ? 'en-US' : 'bn-BD';
+    recognition.start();
+    micBtn.classList.add('on');
+  } else {
+    recognition.stop();
+    micBtn.classList.remove('on');
+  }
+});
+
+langBtn.addEventListener('click', ()=>{
+  lang = lang === 'en' ? 'bn' : 'en';
+  langBtn.textContent = lang === 'en' ? 'EN' : 'বাং';
+  if(recognition) recognition.lang = lang === 'en' ? 'en-US' : 'bn-BD';
+  scheduleSave();
+});
+
+// keep cursor at end after voice insert / general focus convenience
+editor.addEventListener('keydown', ()=>{ /* normal typing, no override needed */ });
+
+// ---------- init ----------
+loadDraft();
+window.addEventListener('beforeunload', saveDraft);
+</script>
+</body>
+  </html>
+    
